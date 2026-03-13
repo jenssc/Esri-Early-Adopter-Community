@@ -17,6 +17,7 @@ namespace ClippingSAmple
             Console.WriteLine($"ClippingSample.exe {string.Join(' ', args)}");
             Console.WriteLine();
 
+            #region Arguments
             var arguments = new Dictionary<string, string>();
 
             for (int i = 0; i < args.Length; i++) {
@@ -29,9 +30,11 @@ namespace ClippingSAmple
                     arguments[key] = value;
                 }
             }
+            #endregion
 
             var target = @".\clippingsample.gdb";
 
+            #region Initializing databases
             Console.WriteLine("Extracting sample database...");
             if (Directory.Exists(target))
                 Directory.Delete(target, true);
@@ -49,9 +52,11 @@ namespace ClippingSAmple
                 var geodatabase = new Geodatabase(new FileGeodatabaseConnectionPath(new Uri(IO.Path.GetFullPath(target))));
                 return geodatabase;
             };
+            #endregion
 
             Polygon[] clipping = [];
 
+            #region Loading clipping polygons
             Console.WriteLine("Loading clipping polygons...");
             using (var source = new Geodatabase(new FileGeodatabaseConnectionPath(new Uri(IO.Path.GetFullPath(@".\source.gdb"))))) {
                 using var productCoverage = source.OpenDataset<FeatureClass>("ProductCoverage");
@@ -67,7 +72,9 @@ namespace ClippingSAmple
                     clipping = [.. clipping, shape.GetExteriorRing(0)];
                 }
             }
+            #endregion
 
+            //  Create validation method used to check if all features has only one exterior ring
             var isValid = () => {
                 using (var destination = createGeodatabaseInstance()) {
                     using (var surface = destination.OpenDataset<FeatureClass>("surface")) {
@@ -88,6 +95,7 @@ namespace ClippingSAmple
                 return true;
             };
 
+            //  Do we have a valid database before we begin ?
             if (isValid())
                 Console.WriteLine("Everything is valid, all set to go");
             else {
@@ -95,6 +103,7 @@ namespace ClippingSAmple
                 return;
             }
 
+            #region Clip polygons
             Console.WriteLine("Clipping polygon features...");
             using (var destination = createGeodatabaseInstance()) {
                 int tripCounter = 0;
@@ -184,6 +193,7 @@ namespace ClippingSAmple
                     }
                 }
             }
+            #endregion
 
             Console.WriteLine("All great!");
         }
