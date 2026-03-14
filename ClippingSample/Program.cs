@@ -2,6 +2,7 @@
 using ArcGIS.Core.Geometry;
 using ICSharpCode.SharpZipLib.Zip;
 using System.Diagnostics;
+using static System.Runtime.InteropServices.JavaScript.JSType;
 using IO = System.IO;
 
 namespace ClippingSAmple
@@ -41,7 +42,7 @@ namespace ClippingSAmple
 
             var filegeodatabase = "working.gdb.zip";
 
-            if(arguments.ContainsKey("input"))
+            if (arguments.ContainsKey("input"))
                 filegeodatabase = arguments["input"];
 
             FastZip fastZip = new();
@@ -102,6 +103,32 @@ namespace ClippingSAmple
                 Console.WriteLine("Houston, we have a problem!");
                 return;
             }
+
+            //  Geometry check
+            using (var destination = createGeodatabaseInstance()) {
+                using (var surface = destination.OpenDataset<FeatureClass>("surface")) {
+                    using var cursor = surface.CreateUpdateCursor(null, true);
+                    while (cursor.MoveNext()) {
+                        var feature = (Feature)cursor.Current;
+
+                        var shape = (Polygon)feature.GetShape();
+
+                        if ((shape).ExteriorRingCount > 1) {
+                            Console.WriteLine($"--- OID::{feature.GetObjectID()} has multiple exterior rings #{shape.ExteriorRingCount}!");
+                            return;
+                        }
+
+                        var simple = GeometryEngine.Instance.SimplifyAsFeature(shape, true);
+                        if (!simple.IsEqual(shape)) {
+                            if (((Polygon)simple).ExteriorRingCount > 1) System.Diagnostics.Debugger.Break();
+                            feature.SetShape(simple);
+                            cursor.Update(feature);
+                        }
+                    }
+                }
+            }
+
+
 
             #region Clip polygons
             Console.WriteLine("Clipping polygon features...");
