@@ -1,8 +1,6 @@
 ﻿using ArcGIS.Core.Data;
 using ArcGIS.Core.Geometry;
 using ICSharpCode.SharpZipLib.Zip;
-using System.Diagnostics;
-using static System.Runtime.InteropServices.JavaScript.JSType;
 using IO = System.IO;
 
 namespace ClippingSAmple
@@ -78,6 +76,7 @@ namespace ClippingSAmple
 
             //  Create validation method used to check if all features has only one exterior ring
             var isValid = () => {
+                var success = true;
                 using (var destination = createGeodatabaseInstance()) {
                     using (var surface = destination.OpenDataset<FeatureClass>("surface")) {
                         using (var cursor = surface.Search(null, true)) {
@@ -88,13 +87,13 @@ namespace ClippingSAmple
 
                                 if (shape.ExteriorRingCount > 1) {
                                     Console.WriteLine($"--- OID::{objectid} has multiple exterior rings #{shape.ExteriorRingCount}!");
-                                    return false;
+                                    success = false;
                                 }
                             }
                         }
                     }
                 }
-                return true;
+                return success;
             };
 
             //  Do we have a valid database before we begin ?
@@ -114,7 +113,7 @@ namespace ClippingSAmple
 
                         var shape = (Polygon)feature.GetShape();
 
-                        if ((shape).ExteriorRingCount > 1) {
+                        if (shape.ExteriorRingCount > 1) {
                             Console.WriteLine($"--- OID::{feature.GetObjectID()} has multiple exterior rings #{shape.ExteriorRingCount}!");
                             return;
                         }
@@ -146,9 +145,8 @@ namespace ClippingSAmple
 
                     var spatialFilter = new SpatialQueryFilter {
                         FilterGeometry = queryPolygon,
+                        SpatialRelationship = SpatialRelationship.IndexIntersects
                     };
-
-                    spatialFilter.SpatialRelationship = SpatialRelationship.IndexIntersects;
 
                     long[] hits = [];
                     using (var surface = destination.OpenDataset<FeatureClass>("surface")) {
@@ -231,7 +229,7 @@ namespace ClippingSAmple
                             }
                         }
                     }
-                    Console.WriteLine($"\tUpdated: OBJECTID IN ({string.Join(',',updated)})");
+                    Console.WriteLine($"\tUpdated: OBJECTID IN ({string.Join(',', updated)})");
 
                     if (!isValid()) {
                         Console.WriteLine("Houston, we have a problem!");
