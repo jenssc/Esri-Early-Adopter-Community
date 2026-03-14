@@ -70,7 +70,8 @@ namespace ClippingSAmple
                 while (search.MoveNext()) {
                     var shape = (Polygon)((Feature)search.Current).GetShape();
 
-                    clipping = [.. clipping, shape.GetExteriorRing(0)];
+                    var ring = shape.GetExteriorRing(0, true);
+                    clipping = [.. clipping, ring];
                 }
             }
             #endregion
@@ -117,13 +118,19 @@ namespace ClippingSAmple
                             Console.WriteLine($"--- OID::{feature.GetObjectID()} has multiple exterior rings #{shape.ExteriorRingCount}!");
                             return;
                         }
-
-                        var simple = GeometryEngine.Instance.SimplifyAsFeature(shape, true);
-                        if (!simple.IsEqual(shape)) {
-                            if (((Polygon)simple).ExteriorRingCount > 1) System.Diagnostics.Debugger.Break();
-                            feature.SetShape(simple);
-                            cursor.Update(feature);
+                        if (!shape.IsKnownSimple) {
+                            Console.WriteLine($"--- OID::{feature.GetObjectID()} is not know simple!");
                         }
+                        if (!shape.IsKnownSimpleOgc) {
+                            //Console.WriteLine($"--- OID::{feature.GetObjectID()} is not know simple OGC!");
+                        }
+
+                        //var simple = GeometryEngine.Instance.SimplifyAsFeature(shape, true);
+                        //if (!simple.IsEqual(shape)) {
+                        //    if (((Polygon)simple).ExteriorRingCount > 1) System.Diagnostics.Debugger.Break();
+                        //    feature.SetShape(simple);
+                        //    cursor.Update(feature);
+                        //}
                     }
                 }
             }
@@ -152,6 +159,7 @@ namespace ClippingSAmple
                         }
                     }
 
+                    long[] updated = [];
                     using (var surface = destination.OpenDataset<FeatureClass>("surface")) {
                         foreach (var objectid in hits) {
                             using var cursor = surface.Search(new QueryFilter {
@@ -168,6 +176,7 @@ namespace ClippingSAmple
                             }
                             else if (GeometryEngine.Instance.Intersects(queryPolygon, shape)) {
                                 //Console.WriteLine($"    update::{objectid}");
+                                updated = [.. updated, objectid];
                                 var difference = GeometryEngine.Instance.Difference(shape, queryPolygon);
 
                                 if (difference is Polygon polygon) {
@@ -189,7 +198,8 @@ namespace ClippingSAmple
                                             polygons = [.. polygons, _];
                                         }
 
-                                        feature.SetShape(GeometryEngine.Instance.SimplifyAsFeature(polygons[0], true));
+                                        //feature.SetShape(GeometryEngine.Instance.SimplifyAsFeature(polygons[0], true));
+                                        feature.SetShape(polygons[0]);
                                         feature.Store();
 
                                         using var buffer = surface.CreateRowBuffer();
@@ -198,21 +208,30 @@ namespace ClippingSAmple
                                         buffer["flatten"] = feature["flatten"];
 
                                         for (int i = 1; i < polygons.Length; i++) {
-                                            var p = GeometryEngine.Instance.SimplifyAsFeature(polygons[i], true);
+                                            //var p = GeometryEngine.Instance.SimplifyAsFeature(polygons[i], true);
 
-                                            buffer["shape"] = p;
+                                            buffer["shape"] = polygons[i];
                                             using var _ = surface.CreateRow(buffer);
                                         }
                                         buffer.Dispose();
                                     }
                                     else {
-                                        feature.SetShape(GeometryEngine.Instance.SimplifyAsFeature(polygon, true));
+                                        //feature.SetShape(GeometryEngine.Instance.SimplifyAsFeature(polygon, true));
+                                        feature.SetShape(polygon);
                                         feature.Store();
                                     }
                                 }
                             }
+
+                            try {
+                                if (!isValid()) return;
+                            }
+                            catch {
+                                return;
+                            }
                         }
                     }
+                    Console.WriteLine($"\tUpdated: OBJECTID IN ({string.Join(',',updated)})");
 
                     if (!isValid()) {
                         Console.WriteLine("Houston, we have a problem!");
