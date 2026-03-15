@@ -183,6 +183,7 @@ namespace NetTopologySuiteSample
                             if (shape.Contains(queryPolygonNetTopology)) {
                                 Console.WriteLine($"\tdelete::{objectid}");
                                 deleted = [.. deleted, objectid];
+                                continue;
                             }
 
                             var difference = shape.Difference(queryPolygonNetTopology);
@@ -198,7 +199,7 @@ namespace NetTopologySuiteSample
                                     using var buffer = surface.CreateRowBuffer(feature);
                                     buffer["shape"] = polygon.ToArcGIS();
                                     var uid = insert.Insert(buffer);
-                                    Console.WriteLine($"\tinsert::{objectid}");
+                                    Console.WriteLine($"\tinsert::{uid}");
                                     //using var _ = surface.CreateRow(buffer);
                                     //feature.SetShape(polygon.ToArcGIS());
                                     //feature.Store();
@@ -211,7 +212,7 @@ namespace NetTopologySuiteSample
                                 using var buffer = surface.CreateRowBuffer(feature);
                                 buffer["shape"] = ((NetTopologySuite.Geometries.Polygon)multiPolygon[0]).ToArcGIS();
                                 var uid = insert.Insert(buffer);
-                                Console.WriteLine($"\tinsert::{objectid}");
+                                Console.WriteLine($"\tinsert::{uid}");
 
                                 //feature.SetShape(((NetTopologySuite.Geometries.Polygon)multiPolygon[0]).ToArcGIS());
                                 //feature.Store();
@@ -223,7 +224,7 @@ namespace NetTopologySuiteSample
                                 foreach (NetTopologySuite.Geometries.Polygon p in multiPolygon.Skip(1)) {
                                     buffer["shape"] = p.ToArcGIS();
                                     uid = insert.Insert(buffer);
-                                    Console.WriteLine($"\tinsert::{objectid}");
+                                    Console.WriteLine($"\tinsert::{uid}");
                                     //using var _ = surface.CreateRow(buffer);
                                 }
                             }
@@ -231,7 +232,7 @@ namespace NetTopologySuiteSample
                                 ;
                             }
 
-                            if (!isValid()) return;
+                            //if (!isValid()) return;
                         }
 
                         insert.Flush();
