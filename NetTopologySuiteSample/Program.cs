@@ -1,6 +1,7 @@
 ﻿using ArcGIS.Core.Data;
 using ArcGIS.Core.Geometry;
 using ICSharpCode.SharpZipLib.Zip;
+using static System.Runtime.InteropServices.JavaScript.JSType;
 using IO = System.IO;
 
 namespace NetTopologySuiteSample
@@ -87,6 +88,25 @@ namespace NetTopologySuiteSample
                                     Console.WriteLine($"--- OID::{objectid} has multiple exterior rings #{shape.ExteriorRingCount}!");
                                     success = false;
                                 }
+                                if (!shape.IsKnownSimple) {
+                                    Console.WriteLine($"--- OID::{objectid} is not know simple!");
+                                    success = false;
+                                }
+                                if (!shape.IsKnownSimpleOgc) {
+                                    //Console.WriteLine($"--- OID::{objectid} is not know simple OGC!");
+                                }
+                                if (shape.IsEmpty) {
+                                    Console.WriteLine($"--- OID::{objectid} is empty!");
+                                    success = false;
+                                }
+
+                                var nettopology = shape.ToNetTopology();
+                                var arcgisgeometry = nettopology.ToArcGIS();
+
+                                if (shape.IsEqual(arcgisgeometry)) {
+                                    Console.WriteLine($"--- OID::{objectid} is not NetTopologySuite!");
+                                    success = false;
+                                }
                             }
                         }
                     }
@@ -117,31 +137,6 @@ namespace NetTopologySuiteSample
                 }
             }
 
-            //  Geometry check
-            using (var destination = createGeodatabaseInstance()) {
-                using (var surface = destination.OpenDataset<FeatureClass>("surface")) {
-                    using var cursor = surface.Search(null, true);
-                    while (cursor.MoveNext()) {
-                        var feature = (Feature)cursor.Current;
-
-                        var shape = (Polygon)feature.GetShape();
-
-                        if (shape.ExteriorRingCount > 1) {
-                            Console.WriteLine($"--- OID::{feature.GetObjectID()} has multiple exterior rings #{shape.ExteriorRingCount}!");
-                            return;
-                        }
-                        if (!shape.IsKnownSimple) {
-                            Console.WriteLine($"--- OID::{feature.GetObjectID()} is not know simple!");
-                        }
-                        if (!shape.IsKnownSimpleOgc) {
-                            //Console.WriteLine($"--- OID::{feature.GetObjectID()} is not know simple OGC!");
-                        }
-                    }
-                }
-            }
-
-
-
             #region Clip polygons
             Console.WriteLine("Clipping polygon features...");
             using (var destination = createGeodatabaseInstance()) {
@@ -165,50 +160,70 @@ namespace NetTopologySuiteSample
 
                     var queryPolygonNetTopology = queryPolygon.ToNetTopology();
 
+                    long[] deleted = [];
                     long[] updated = [];
-                    foreach (var objectid in hits) {
-                        using (var surface = destination.OpenDataset<FeatureClass>("surface")) {
+                    using (var surface = destination.OpenDataset<FeatureClass>("surface")) {
+                        using var insert = surface.CreateInsertCursor();
+
+                        foreach (var objectid in hits) {
                             using var cursor = surface.Search(new QueryFilter {
                                 WhereClause = $"OBJECTID = {objectid}",
-                            }, true);
+                            }, false);
 
                             cursor.MoveNext();
 
-                            if (objectid == 1084) System.Diagnostics.Debugger.Break();
+                            //if (objectid == 1084) System.Diagnostics.Debugger.Break();
 
-                            var feature = (Feature)cursor.Current;                            
+                            var feature = (Feature)cursor.Current;
                             var shape = ((Polygon)feature.GetShape()).ToNetTopology();
 
                             if (shape.Disjoint(queryPolygonNetTopology))
                                 continue;
 
                             if (shape.Contains(queryPolygonNetTopology)) {
-                                feature.Delete();
+                                Console.WriteLine($"\tdelete::{objectid}");
+                                deleted = [.. deleted, objectid];
                             }
 
                             var difference = shape.Difference(queryPolygonNetTopology);
 
                             if (difference is NetTopologySuite.Geometries.Polygon polygon) {
                                 if (polygon.IsEmpty) {
-                                    feature.Delete();
+                                    Console.WriteLine($"\tdelete::{objectid}");
+                                    deleted = [.. deleted, objectid];
                                 }
                                 else {
-                                    feature.SetShape(polygon.ToArcGIS());
-                                    feature.Store();
+                                    Console.WriteLine($"\tdelete::{objectid}");
+                                    deleted = [.. deleted, objectid];
+                                    using var buffer = surface.CreateRowBuffer(feature);
+                                    buffer["shape"] = polygon.ToArcGIS();
+                                    var uid = insert.Insert(buffer);
+                                    Console.WriteLine($"\tinsert::{objectid}");
+                                    //using var _ = surface.CreateRow(buffer);
+                                    //feature.SetShape(polygon.ToArcGIS());
+                                    //feature.Store();
                                 }
                             }
                             else if (difference is NetTopologySuite.Geometries.MultiPolygon multiPolygon) {
                                 if (multiPolygon.Any(e => e.IsEmpty)) System.Diagnostics.Debugger.Break();
 
-                                feature.SetShape(((NetTopologySuite.Geometries.Polygon)multiPolygon[0]).ToArcGIS());
-                                feature.Store();
+                                deleted = [.. deleted, objectid];
+                                using var buffer = surface.CreateRowBuffer(feature);
+                                buffer["shape"] = ((NetTopologySuite.Geometries.Polygon)multiPolygon[0]).ToArcGIS();
+                                var uid = insert.Insert(buffer);
+                                Console.WriteLine($"\tinsert::{objectid}");
 
-                                using var buffer = surface.CreateRowBuffer();
-                                buffer["ps"] = feature["ps"];
-                                buffer["code"] = feature["code"];
-                                buffer["flatten"] = feature["flatten"];
+                                //feature.SetShape(((NetTopologySuite.Geometries.Polygon)multiPolygon[0]).ToArcGIS());
+                                //feature.Store();
+
+                                //using var buffer = surface.CreateRowBuffer(feature);
+                                //buffer["ps"] = feature["ps"];
+                                //buffer["code"] = feature["code"];
+                                //buffer["flatten"] = feature["flatten"];
                                 foreach (NetTopologySuite.Geometries.Polygon p in multiPolygon.Skip(1)) {
                                     buffer["shape"] = p.ToArcGIS();
+                                    uid = insert.Insert(buffer);
+                                    Console.WriteLine($"\tinsert::{objectid}");
                                     //using var _ = surface.CreateRow(buffer);
                                 }
                             }
@@ -216,15 +231,22 @@ namespace NetTopologySuiteSample
                                 ;
                             }
 
-                            try {
-                                if (!isValid()) return;
-                            }
-                            catch {
-                                return;
-                            }
+                            if (!isValid()) return;
+                        }
+
+                        insert.Flush();
+                    }
+
+                    if (deleted.Any()) {
+                        using (var surface = destination.OpenDataset<FeatureClass>("surface")) {
+                            surface.DeleteRows(new QueryFilter {
+                                WhereClause = $"OBJECTID IN ({string.Join(',', deleted)})",
+                            });
                         }
                     }
-                    Console.WriteLine($"\tUpdated: OBJECTID IN ({string.Join(',', updated)})");
+
+                    if (updated.Any())
+                        Console.WriteLine($"\tUpdated: OBJECTID IN ({string.Join(',', updated)})");
 
                     if (!isValid()) {
                         Console.WriteLine("Houston, we have a problem!");
