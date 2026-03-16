@@ -54,8 +54,7 @@ namespace NetTopologySuiteSample
             };
             #endregion
 
-            Polygon[] clipping = [];
-
+            Polygon[] clipping = []; 
             #region Loading clipping polygons
             Console.WriteLine("Loading clipping polygons...");
             using (var source = new Geodatabase(new FileGeodatabaseConnectionPath(new Uri(IO.Path.GetFullPath(@".\source.gdb"))))) {
@@ -232,7 +231,7 @@ namespace NetTopologySuiteSample
                                 ;
                             }
 
-                            //if (!isValid()) return;
+                            if (!isValid()) return;
                         }
 
                         insert.Flush();
@@ -289,6 +288,22 @@ namespace NetTopologySuite.Geometries
             }
             return _.ToArray();
         }
+
+        public static LineString? MakePrecise(this LineString? lineString) {
+            if (lineString == null) return lineString;
+
+            for (int i = 0; i < lineString.NumPoints; i++) {
+                lineString.Factory.PrecisionModel.MakePrecise(lineString[i]);
+            }
+            return lineString;
+        }
+
+        public static LinearRing MakePrecise(this LinearRing linearRing) {
+            for (int i = 0; i < linearRing.NumPoints; i++) {
+                linearRing.Factory.PrecisionModel.MakePrecise(linearRing[i]);
+            }
+            return linearRing;
+        }
     }
 }
 
@@ -305,7 +320,7 @@ namespace ArcGIS.Core.Geometry
             var coordinates = exteriorRing.Parts[0].Select(segment => new Coordinate(segment.StartPoint.X, segment.StartPoint.Y)).ToArray();
 
             var ex = factory.CreateLinearRing([.. coordinates, coordinates[0]]);
-            ex = ex.RemoveRepeatedVertices();
+            ex = ex.RemoveRepeatedVertices().MakePrecise();
 
             if (shape.PartCount > 1) {
                 var interiorRings = new List<LinearRing>();
@@ -314,7 +329,7 @@ namespace ArcGIS.Core.Geometry
                     coordinates = interiorRing.Select(segment => new Coordinate(segment.StartPoint.X, segment.StartPoint.Y)).ToArray();
 
                     var linestring = factory.CreateLinearRing([.. coordinates, coordinates[0]]);
-                    linestring = linestring.RemoveRepeatedVertices();
+                    linestring = linestring.RemoveRepeatedVertices().MakePrecise();
                     interiorRings.Add(linestring);
                 }
 
