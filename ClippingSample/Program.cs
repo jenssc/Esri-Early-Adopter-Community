@@ -120,16 +120,6 @@ namespace ClippingSAmple
                         if (!shape.IsKnownSimple) {
                             Console.WriteLine($"--- OID::{feature.GetObjectID()} is not know simple!");
                         }
-                        if (!shape.IsKnownSimpleOgc) {
-                            //Console.WriteLine($"--- OID::{feature.GetObjectID()} is not know simple OGC!");
-                        }
-
-                        //var simple = GeometryEngine.Instance.SimplifyAsFeature(shape, true);
-                        //if (!simple.IsEqual(shape)) {
-                        //    if (((Polygon)simple).ExteriorRingCount > 1) System.Diagnostics.Debugger.Break();
-                        //    feature.SetShape(simple);
-                        //    cursor.Update(feature);
-                        //}
                     }
                 }
             }
@@ -158,7 +148,13 @@ namespace ClippingSAmple
                     }
 
                     long[] updated = [];
+                    long[] created = [];
+                    long[] deleted = [];
+
                     using (var surface = destination.OpenDataset<FeatureClass>("surface")) {
+
+                        using var insert = surface.CreateInsertCursor();
+
                         foreach (var objectid in hits) {
                             using var cursor = surface.Search(new QueryFilter {
                                 WhereClause = $"OBJECTID = {objectid}",
@@ -168,13 +164,12 @@ namespace ClippingSAmple
 
                             var feature = (Feature)cursor.Current;
                             var shape = (Polygon)feature.GetShape();
-
+                            
                             if (GeometryEngine.Instance.Within(shape, queryPolygon)) {
-                                feature.Delete();
+                                deleted = [.. deleted, objectid];
                             }
                             else if (GeometryEngine.Instance.Intersects(queryPolygon, shape)) {
-                                //Console.WriteLine($"    update::{objectid}");
-                                updated = [.. updated, objectid];
+                                deleted = [.. deleted, objectid];
                                 var difference = GeometryEngine.Instance.Difference(shape, queryPolygon);
 
                                 if (difference is Polygon polygon) {
@@ -196,40 +191,44 @@ namespace ClippingSAmple
                                             polygons = [.. polygons, _];
                                         }
 
-                                        //feature.SetShape(GeometryEngine.Instance.SimplifyAsFeature(polygons[0], true));
-                                        feature.SetShape(polygons[0]);
-                                        feature.Store();
+                                        using var buffer = surface.CreateRowBuffer(feature);
 
-                                        using var buffer = surface.CreateRowBuffer();
-                                        buffer["ps"] = feature["ps"];
-                                        buffer["code"] = feature["code"];
-                                        buffer["flatten"] = feature["flatten"];
-
-                                        for (int i = 1; i < polygons.Length; i++) {
-                                            //var p = GeometryEngine.Instance.SimplifyAsFeature(polygons[i], true);
-
+                                        for (int i = 0; i < polygons.Length; i++) {
                                             buffer["shape"] = polygons[i];
-                                            using var _ = surface.CreateRow(buffer);
+                                            var _ = insert.Insert(buffer);
+                                            created = [.. created, _];
                                         }
-                                        buffer.Dispose();
                                     }
                                     else {
-                                        //feature.SetShape(GeometryEngine.Instance.SimplifyAsFeature(polygon, true));
-                                        feature.SetShape(polygon);
-                                        feature.Store();
+                                        using var buffer = surface.CreateRowBuffer(feature);
+                                        buffer["shape"] = polygon;
+                                        var _ = insert.Insert(buffer);
+                                        created = [.. created, _];
                                     }
                                 }
                             }
 
                             try {
-                                if (!isValid()) return;
+                                if (!isValid()) {
+                                    Console.WriteLine($"... caused by OID {objectid}");
+                                    return;
+                                }
                             }
-                            catch {
+                            catch(System.Exception ex) {
+                                Console.WriteLine($"Cautht exception: {ex}");
+                                Console.WriteLine($"... caused by OID {objectid}");
                                 return;
                             }
                         }
+
+                        insert.Flush();
+
+                        surface.DeleteRows(new QueryFilter {
+                            WhereClause = $"OBJECTID IN ({string.Join(',', deleted)})",
+                        });
                     }
-                    Console.WriteLine($"\tUpdated: OBJECTID IN ({string.Join(',', updated)})");
+                    Console.WriteLine($"\tcreated: OBJECTID IN ({string.Join(',', created)})");
+                    Console.WriteLine($"\tdeleted: OBJECTID IN ({string.Join(',', deleted)})");
 
                     if (!isValid()) {
                         Console.WriteLine("Houston, we have a problem!");
