@@ -111,7 +111,7 @@ namespace ClippingSAmple
                     while (cursor.MoveNext()) {
                         var feature = (Feature)cursor.Current;
 
-                        var shape = (Polygon)feature.GetShape();
+                        var shape = (Polygon)feature.GetShape().Clone();
 
                         if (shape.ExteriorRingCount > 1) {
                             Console.WriteLine($"--- OID::{feature.GetObjectID()} has multiple exterior rings #{shape.ExteriorRingCount}!");
