@@ -111,7 +111,7 @@ namespace ClippingSAmple
                     while (cursor.MoveNext()) {
                         var feature = (Feature)cursor.Current;
 
-                        var shape = (Polygon)feature.GetShape();
+                        var shape = (Polygon)feature.GetShape().Clone();
 
                         if (shape.ExteriorRingCount > 1) {
                             Console.WriteLine($"--- OID::{feature.GetObjectID()} has multiple exterior rings #{shape.ExteriorRingCount}!");
@@ -133,13 +133,17 @@ namespace ClippingSAmple
                 foreach (var queryPolygon in clipping) {
                     Console.WriteLine($"  Clipping #{++tripCounter}");
 
-                    var spatialFilter = new SpatialQueryFilter {
-                        FilterGeometry = queryPolygon,
-                        SpatialRelationship = SpatialRelationship.IndexIntersects
-                    };
-
                     long[] hits = [];
                     using (var surface = destination.OpenDataset<FeatureClass>("surface")) {
+
+                        var targetSR = surface.GetDefinition().GetSpatialReference();
+                        var queryPolygonProjected = GeometryEngine.Instance.Project(queryPolygon, targetSR);
+
+                        var spatialFilter = new SpatialQueryFilter {
+                            FilterGeometry = queryPolygonProjected,
+                            SpatialRelationship = SpatialRelationship.IndexIntersects
+                        };
+
                         using (var cursor = surface.CreateUpdateCursor(spatialFilter, true)) {
                             while (cursor.MoveNext()) {
                                 hits = [.. hits, cursor.Current.GetObjectID()];
@@ -152,6 +156,8 @@ namespace ClippingSAmple
                     long[] deleted = [];
 
                     using (var surface = destination.OpenDataset<FeatureClass>("surface")) {
+                        var targetSR = surface.GetDefinition().GetSpatialReference();
+                        var queryPolygonProjected = (Polygon)GeometryEngine.Instance.Project(queryPolygon, targetSR);
 
                         using var insert = surface.CreateInsertCursor();
 
@@ -165,12 +171,12 @@ namespace ClippingSAmple
                             var feature = (Feature)cursor.Current;
                             var shape = (Polygon)feature.GetShape();
                             
-                            if (GeometryEngine.Instance.Within(shape, queryPolygon)) {
+                            if (GeometryEngine.Instance.Within(shape, queryPolygonProjected)) {
                                 deleted = [.. deleted, objectid];
                             }
-                            else if (GeometryEngine.Instance.Intersects(queryPolygon, shape)) {
+                            else if (GeometryEngine.Instance.Intersects(queryPolygonProjected, shape)) {
                                 deleted = [.. deleted, objectid];
-                                var difference = GeometryEngine.Instance.Difference(shape, queryPolygon);
+                                var difference = GeometryEngine.Instance.Difference(shape, queryPolygonProjected);
 
                                 if (difference is Polygon polygon) {
                                     if (polygon.ExteriorRingCount > 1) {
