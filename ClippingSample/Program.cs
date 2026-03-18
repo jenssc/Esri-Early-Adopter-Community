@@ -111,7 +111,7 @@ namespace ClippingSAmple
                     while (cursor.MoveNext()) {
                         var feature = (Feature)cursor.Current;
 
-                        var shape = (Polygon)feature.GetShape().Clone();
+                        var shape = (Polygon)feature.GetShape();
 
                         if (shape.ExteriorRingCount > 1) {
                             Console.WriteLine($"--- OID::{feature.GetObjectID()} has multiple exterior rings #{shape.ExteriorRingCount}!");
@@ -135,9 +135,8 @@ namespace ClippingSAmple
 
                     long[] hits = [];
                     using (var surface = destination.OpenDataset<FeatureClass>("surface")) {
-
                         var targetSR = surface.GetDefinition().GetSpatialReference();
-                        var queryPolygonProjected = GeometryEngine.Instance.Project(queryPolygon, targetSR);
+                        var queryPolygonProjected = (Polygon)GeometryEngine.Instance.Project(queryPolygon, targetSR);
 
                         var spatialFilter = new SpatialQueryFilter {
                             FilterGeometry = queryPolygonProjected,
