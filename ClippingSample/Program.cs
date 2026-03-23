@@ -166,10 +166,10 @@ namespace ClippingSAmple
                         featureClass.DeleteRows(spatialFilter);
                     }
 
-                    {   //  surface
+                    {   //  curve
                         long[] hits = [];
-                        using (var surface = destination.OpenDataset<FeatureClass>("surface")) {
-                            var targetSR = surface.GetDefinition().GetSpatialReference();
+                        using (var featureClass = destination.OpenDataset<FeatureClass>("curve")) {
+                            var targetSR = featureClass.GetDefinition().GetSpatialReference();
                             var queryPolygonProjected = (Polygon)GeometryEngine.Instance.Project(queryPolygon, targetSR);
 
                             var spatialFilter = new SpatialQueryFilter {
@@ -177,7 +177,7 @@ namespace ClippingSAmple
                                 SpatialRelationship = SpatialRelationship.IndexIntersects
                             };
 
-                            using (var cursor = surface.CreateUpdateCursor(spatialFilter, true)) {
+                            using (var cursor = featureClass.CreateUpdateCursor(spatialFilter, true)) {
                                 while (cursor.MoveNext()) {
                                     hits = [.. hits, cursor.Current.GetObjectID()];
                                 }
@@ -188,14 +188,85 @@ namespace ClippingSAmple
                         long[] created = [];
                         long[] deleted = [];
 
-                        using (var surface = destination.OpenDataset<FeatureClass>("surface")) {
-                            var targetSR = surface.GetDefinition().GetSpatialReference();
+                        using (var featureClass = destination.OpenDataset<FeatureClass>("curve")) {
+                            var targetSR = featureClass.GetDefinition().GetSpatialReference();
                             var queryPolygonProjected = (Polygon)GeometryEngine.Instance.Project(queryPolygon, targetSR);
 
-                            using var insert = surface.CreateInsertCursor();
+                            using var insert = featureClass.CreateInsertCursor();
 
                             foreach (var objectid in hits) {
-                                using var cursor = surface.Search(new QueryFilter {
+                                using var cursor = featureClass.Search(new QueryFilter {
+                                    WhereClause = $"OBJECTID = {objectid}",
+                                }, false);
+
+                                cursor.MoveNext();
+
+                                using var feature = (Feature)cursor.Current;
+                                var shape = (Polyline)feature.GetShape();
+
+                                if (GeometryEngine.Instance.Disjoint(shape, queryPolygonProjected))
+                                    continue;
+
+                                if (GeometryEngine.Instance.Within(shape, queryPolygonProjected)) {
+                                    deleted = [.. deleted, objectid];
+                                }
+                                else if (GeometryEngine.Instance.Intersects(queryPolygonProjected, shape)) {
+                                    deleted = [.. deleted, objectid];
+                                    var difference = GeometryEngine.Instance.Difference(shape, queryPolygonProjected);
+
+                                    if (difference is Polyline polyline) {
+                                        using var buffer = featureClass.CreateRowBuffer(feature);
+                                        buffer["shape"] = polyline;
+                                        var _ = insert.Insert(buffer);
+                                        created = [.. created, _];
+                                    }
+                                }
+                            }
+
+                            insert.Flush();
+
+                            featureClass.DeleteRows(new QueryFilter {
+                                WhereClause = $"OBJECTID IN ({string.Join(',', deleted)})",
+                            });
+
+                            featureClass.DeleteRows(new SpatialQueryFilter {
+                                FilterGeometry = queryPolygonProjected,
+                                SpatialRelationship = SpatialRelationship.Contains
+                            });
+                        }
+                    }
+
+
+                    {   //  surface
+                        long[] hits = [];
+                        using (var featureClass = destination.OpenDataset<FeatureClass>("surface")) {
+                            var targetSR = featureClass.GetDefinition().GetSpatialReference();
+                            var queryPolygonProjected = (Polygon)GeometryEngine.Instance.Project(queryPolygon, targetSR);
+
+                            var spatialFilter = new SpatialQueryFilter {
+                                FilterGeometry = queryPolygonProjected,
+                                SpatialRelationship = SpatialRelationship.IndexIntersects
+                            };
+
+                            using (var cursor = featureClass.CreateUpdateCursor(spatialFilter, true)) {
+                                while (cursor.MoveNext()) {
+                                    hits = [.. hits, cursor.Current.GetObjectID()];
+                                }
+                            }
+                        }
+
+                        long[] updated = [];
+                        long[] created = [];
+                        long[] deleted = [];
+
+                        using (var featureClass = destination.OpenDataset<FeatureClass>("surface")) {
+                            var targetSR = featureClass.GetDefinition().GetSpatialReference();
+                            var queryPolygonProjected = (Polygon)GeometryEngine.Instance.Project(queryPolygon, targetSR);
+
+                            using var insert = featureClass.CreateInsertCursor();
+
+                            foreach (var objectid in hits) {
+                                using var cursor = featureClass.Search(new QueryFilter {
                                     WhereClause = $"OBJECTID = {objectid}",
                                 }, false);
 
@@ -230,7 +301,7 @@ namespace ClippingSAmple
                                                 polygons = [.. polygons, _];
                                             }
 
-                                            using var buffer = surface.CreateRowBuffer(feature);
+                                            using var buffer = featureClass.CreateRowBuffer(feature);
 
                                             for (int i = 0; i < polygons.Length; i++) {
                                                 buffer["shape"] = polygons[i];
@@ -239,7 +310,7 @@ namespace ClippingSAmple
                                             }
                                         }
                                         else {
-                                            using var buffer = surface.CreateRowBuffer(feature);
+                                            using var buffer = featureClass.CreateRowBuffer(feature);
                                             buffer["shape"] = polygon;
                                             var _ = insert.Insert(buffer);
                                             created = [.. created, _];
@@ -262,11 +333,11 @@ namespace ClippingSAmple
 
                             insert.Flush();
 
-                            surface.DeleteRows(new QueryFilter {
+                            featureClass.DeleteRows(new QueryFilter {
                                 WhereClause = $"OBJECTID IN ({string.Join(',', deleted)})",
                             });
 
-                            surface.DeleteRows(new SpatialQueryFilter {
+                            featureClass.DeleteRows(new SpatialQueryFilter {
                                 FilterGeometry = queryPolygonProjected,
                                 SpatialRelationship = SpatialRelationship.Contains
                             });
