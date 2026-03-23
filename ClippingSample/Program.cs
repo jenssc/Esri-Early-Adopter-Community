@@ -89,6 +89,17 @@ namespace ClippingSAmple
                                     Console.WriteLine($"--- OID::{objectid} has multiple exterior rings #{shape.ExteriorRingCount}!");
                                     success = false;
                                 }
+                                if (!shape.IsKnownSimple) {
+                                    Console.WriteLine($"--- OID::{objectid} is not know simple!");
+                                    success = false;
+                                }
+                                if (!shape.IsKnownSimpleOgc) {
+                                    //Console.WriteLine($"--- OID::{objectid} is not know simple OGC!");
+                                }
+                                if (shape.IsEmpty) {
+                                    Console.WriteLine($"--- OID::{objectid} is empty!");
+                                    success = false;
+                                }
                             }
                         }
                     }
