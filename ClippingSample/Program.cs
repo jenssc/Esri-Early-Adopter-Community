@@ -73,6 +73,21 @@ namespace ClippingSAmple
                 }
             }
             #endregion
+            
+            double area = double.MinValue;
+
+            using (var destination = createGeodatabaseInstance()) {
+                using (var surface = destination.OpenDataset<FeatureClass>("surface")) {
+                    using var cursor = surface.CreateUpdateCursor(null, true);
+                    while (cursor.MoveNext()) {
+                        var feature = (Feature)cursor.Current;
+
+                        var shape = (Polygon)feature.GetShape();
+                        if (shape.Area > area)
+                            area = shape.Area;
+                    }
+                }
+            }
 
             //  Create validation method used to check if all features has only one exterior ring
             var isValid = () => {
@@ -84,6 +99,11 @@ namespace ClippingSAmple
                                 var feature = (Feature)cursor.Current;
                                 var objectid = feature.GetObjectID();
                                 var shape = (Polygon)feature.GetShape();
+
+                                if(shape.Area> area) {
+                                    Console.WriteLine($"--- OID::{objectid} large area!");
+                                    success = false;
+                                }
 
                                 if (shape.ExteriorRingCount > 1) {
                                     Console.WriteLine($"--- OID::{objectid} has multiple exterior rings #{shape.ExteriorRingCount}!");
@@ -114,28 +134,6 @@ namespace ClippingSAmple
                 Console.WriteLine("Houston, we have a problem!");
                 return;
             }
-
-            //  Geometry check
-            using (var destination = createGeodatabaseInstance()) {
-                using (var surface = destination.OpenDataset<FeatureClass>("surface")) {
-                    using var cursor = surface.CreateUpdateCursor(null, true);
-                    while (cursor.MoveNext()) {
-                        var feature = (Feature)cursor.Current;
-
-                        var shape = (Polygon)feature.GetShape();
-
-                        if (shape.ExteriorRingCount > 1) {
-                            Console.WriteLine($"--- OID::{feature.GetObjectID()} has multiple exterior rings #{shape.ExteriorRingCount}!");
-                            return;
-                        }
-                        if (!shape.IsKnownSimple) {
-                            Console.WriteLine($"--- OID::{feature.GetObjectID()} is not know simple!");
-                        }
-                    }
-                }
-            }
-
-
 
             #region Clip polygons
             Console.WriteLine("Clipping polygon features...");
@@ -283,6 +281,8 @@ namespace ClippingSAmple
                                     var difference = GeometryEngine.Instance.Difference(shape, queryPolygonProjected);
 
                                     if (difference is Polygon polygon) {
+                                        if (polygon.IsEmpty) continue;
+
                                         if (polygon.ExteriorRingCount > 1) {
                                             Polygon[] polygons = [];
                                             ReadOnlySegmentCollection[] segments = [polygon.Parts[0]];

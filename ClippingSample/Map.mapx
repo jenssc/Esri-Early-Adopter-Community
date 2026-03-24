@@ -1,7 +1,7 @@
 {
   "type" : "CIMMapDocument",
-  "version" : "3.7.0",
-  "build" : 443,
+  "version" : "3.6.0",
+  "build" : 59527,
   "mapDefinition" : {
     "type" : "CIMMap",
     "name" : "Map",
@@ -36,9 +36,9 @@
     "defaultColorVisionDeficiencyMode" : "None",
     "defaultExtent" : {
       "xmin" : 10.3024437041951913,
-      "ymin" : 55.0582715412324859,
+      "ymin" : 55.0216611832902842,
       "xmax" : 11.2752742531212036,
-      "ymax" : 55.9331902435906869,
+      "ymax" : 55.9698006015328886,
       "spatialReference" : {
         "wkid" : 4326,
         "latestWkid" : 4326,
@@ -122,9 +122,7 @@
     "rGBColorProfile" : "sRGB IEC61966-2.1",
     "cMYKColorProfile" : "U.S. Web Coated (SWOP) v2",
     "autoFillFeatureCache" : true,
-    "useMasking" : true,
-    "locationDisplayUnit" : -1,
-    "elevationDisplayUnit" : -1
+    "useMasking" : true
   },
   "layerDefinitions" : [
     {
@@ -164,15 +162,14 @@
           {
             "type" : "CIMDefinitionFilter",
             "name" : "Coverage",
-            "definitionExpression" : "CATCOV = 1 And PLTS_COMP_SCALE < 22000",
-            "searchOrder" : "esriSearchOrderSpatial"
+            "definitionExpression" : "CATCOV = 1 And PLTS_COMP_SCALE < 22000"
           }
         ],
         "displayField" : "DSNM",
         "editable" : true,
         "dataConnection" : {
           "type" : "CIMStandardDataConnection",
-          "workspaceConnectionString" : "DATABASE=.\\source.gdb",
+          "workspaceConnectionString" : "DATABASE=.\\bin\\Debug\\net8.0\\source.gdb",
           "workspaceFactory" : "FileGDB",
           "dataset" : "ProductCoverage",
           "datasetType" : "esriDTFeatureClass"
@@ -1729,7 +1726,7 @@
         "dataConnection" : {
           "type" : "CIMFeatureDatasetDataConnection",
           "featureDataset" : "FeatureTypes",
-          "workspaceConnectionString" : "DATABASE=.\\ClippingSample.gdb",
+          "workspaceConnectionString" : "DATABASE=.\\bin\\Debug\\net8.0\\ClippingSample.gdb",
           "workspaceFactory" : "FileGDB",
           "dataset" : "surface",
           "datasetType" : "esriDTFeatureClass"
