@@ -38,7 +38,7 @@ namespace ClippingSAmple
             if (Directory.Exists(target))
                 Directory.Delete(target, true);
 
-            var filegeodatabase = "working.gdb.zip";
+            var filegeodatabase = "testing.gdb.zip";
 
             if (arguments.ContainsKey("input"))
                 filegeodatabase = arguments["input"];
