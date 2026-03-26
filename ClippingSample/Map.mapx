@@ -169,7 +169,7 @@
         "editable" : true,
         "dataConnection" : {
           "type" : "CIMStandardDataConnection",
-          "workspaceConnectionString" : "DATABASE=.\\bin\\Debug\\net8.0\\source.gdb",
+          "workspaceConnectionString" : "DATABASE=.\\source.gdb",
           "workspaceFactory" : "FileGDB",
           "dataset" : "ProductCoverage",
           "datasetType" : "esriDTFeatureClass"
@@ -1726,7 +1726,7 @@
         "dataConnection" : {
           "type" : "CIMFeatureDatasetDataConnection",
           "featureDataset" : "FeatureTypes",
-          "workspaceConnectionString" : "DATABASE=.\\bin\\Debug\\net8.0\\ClippingSample.gdb",
+          "workspaceConnectionString" : "DATABASE=.\\ClippingSample.gdb",
           "workspaceFactory" : "FileGDB",
           "dataset" : "surface",
           "datasetType" : "esriDTFeatureClass"
