@@ -289,6 +289,8 @@ namespace ClippingSample
 
                                 cursor.MoveNext();
 
+                                if (objectid == 2160) return;
+
                                 var feature = (Feature)cursor.Current;
                                 var shape = (Polygon)feature.GetShape();
 
@@ -334,14 +336,19 @@ namespace ClippingSample
                                                 var _ = insert.Insert(buffer);
                                                 created = [.. created, _];
 
-                                                if (objectid == 2160) {
-                                                    var json = p.ToJson();
-                                                    using (var spare = destination.OpenDataset<FeatureClass>("surface_spare")) {
-                                                        var b = spare.CreateRowBuffer();
-                                                        b["shape"] = p;
-                                                        spare.CreateRow(b);
-                                                    }
+                                                if (!isValid()) {
+                                                    Console.WriteLine($"... caused by OID {objectid}=>{_}");
+                                                    return;
                                                 }
+
+                                                //if (objectid == 2160) {
+                                                //    var json = p.ToJson();
+                                                //    using (var spare = destination.OpenDataset<FeatureClass>("surface_spare")) {
+                                                //        var b = spare.CreateRowBuffer();
+                                                //        b["shape"] = p;
+                                                //        spare.CreateRow(b);
+                                                //    }
+                                                //}
                                             }
                                             //if (objectid == 2160)
                                             //    return;
