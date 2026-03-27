@@ -1,9 +1,10 @@
 ﻿using ArcGIS.Core.Data;
 using ArcGIS.Core.Geometry;
 using ICSharpCode.SharpZipLib.Zip;
+using System.Diagnostics;
 using IO = System.IO;
 
-namespace ClippingSAmple
+namespace ClippingSample
 {
     internal class Program
     {
@@ -73,7 +74,7 @@ namespace ClippingSAmple
                 }
             }
             #endregion
-            
+
             double area = double.MinValue;
 
             using (var destination = createGeodatabaseInstance()) {
@@ -100,7 +101,7 @@ namespace ClippingSAmple
                                 var objectid = feature.GetObjectID();
                                 var shape = (Polygon)feature.GetShape();
 
-                                if(shape.Area> area) {
+                                if (shape.Area > area) {
                                     Console.WriteLine($"--- OID::{objectid} large area!");
                                     success = false;
                                 }
@@ -302,20 +303,37 @@ namespace ClippingSAmple
                                             }
 
                                             using var buffer = featureClass.CreateRowBuffer(feature);
-
                                             for (int i = 0; i < polygons.Length; i++) {
-                                                buffer["shape"] = polygons[i];
+                                                //buffer["shape"] = polygons[i];
+                                                var p = GeometryEngine.Instance.SimplifyAsFeature(polygons[i]);
+                                                Debug.Assert(p.IsKnownSimple);
+                                                buffer["shape"] = p;
                                                 var _ = insert.Insert(buffer);
                                                 created = [.. created, _];
+
+                                                if (objectid == 2160) {
+                                                    using (var spare = destination.OpenDataset<FeatureClass>("surface_spare")) {
+                                                        var b = spare.CreateRowBuffer();
+                                                        b["shape"] = p;
+                                                        spare.CreateRow(b);
+                                                    }
+                                                }
                                             }
+                                            if (objectid == 2160)
+                                                return;
                                         }
                                         else {
                                             using var buffer = featureClass.CreateRowBuffer(feature);
-                                            buffer["shape"] = polygon;
+                                            //buffer["shape"] = polygon;
+                                            var p = GeometryEngine.Instance.SimplifyAsFeature(polygon);
+                                            Debug.Assert(p.IsKnownSimple);
+                                            buffer["shape"] = p;
                                             var _ = insert.Insert(buffer);
                                             created = [.. created, _];
                                         }
                                     }
+                                    else
+                                        System.Diagnostics.Debugger.Break();
                                 }
 
                                 try {
@@ -357,6 +375,27 @@ namespace ClippingSAmple
             #endregion
 
             Console.WriteLine("All great!");
+        }
+    }
+}
+
+
+namespace ArcGIS.Core.Geometry
+{
+    public static class Extension
+    {
+        public static ReadOnlySegmentCollection RemoveRepeatedVertices(this ReadOnlySegmentCollection segments) {
+            LineSegment[] _ = [(LineSegment)segments[0]];
+
+            for (int i = 1; i < segments.Count; i++) {
+                if (segments[i - 1].StartPoint.IsEqual(segments[i].StartPoint) && segments[i - 1].EndPoint.IsEqual(segments[i].EndPoint)) continue;
+                if (segments[i].StartPoint.IsEqual(segments[i].EndPoint)) continue;
+                _ = [.. _, (LineSegment)segments[i]];
+            }
+            if (_.Length != segments.Count) System.Diagnostics.Debugger.Break();
+
+            var polyline = PolylineBuilderEx.CreatePolyline(_, segments.SpatialReference);
+            return polyline.Parts[0];
         }
     }
 }
