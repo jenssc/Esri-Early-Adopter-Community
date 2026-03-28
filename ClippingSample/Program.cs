@@ -90,11 +90,10 @@ namespace ClippingSample
                 }
             }
 
-            //  Create validation method used to check if all features has only one exterior ring
-            var isValid = () => {
+            var isValidSpecific = (string name) => {
                 var success = true;
                 using (var destination = createGeodatabaseInstance()) {
-                    using (var surface = destination.OpenDataset<FeatureClass>("surface")) {
+                    using (var surface = destination.OpenDataset<FeatureClass>(name)) {
                         using (var cursor = surface.Search(null, true)) {
                             while (cursor.MoveNext()) {
                                 var feature = (Feature)cursor.Current;
@@ -129,6 +128,9 @@ namespace ClippingSample
                 }
                 return success;
             };
+
+            //  Create validation method used to check if all features has only one exterior ring
+            var isValid = () => isValidSpecific("surface");
 
             //  Do we have a valid database before we begin ?
             if (isValid())
@@ -278,145 +280,120 @@ namespace ClippingSample
                         long[] created = [];
                         long[] deleted = [];
 
-                        using (var spare = destination.OpenDataset<FeatureClass>("surface_spare")) {
-                            using var insert = spare.CreateInsertCursor();
 
-                            using (var featureClass = destination.OpenDataset<FeatureClass>("surface")) {
-                                var targetSR = featureClass.GetDefinition().GetSpatialReference();
-                                var queryPolygonProjected = (Polygon)GeometryEngine.Instance.Project(queryPolygon, targetSR);
+                        using (var featureClass = destination.OpenDataset<FeatureClass>("surface")) {
+                            var targetSR = featureClass.GetDefinition().GetSpatialReference();
+                            var queryPolygonProjected = (Polygon)GeometryEngine.Instance.Project(queryPolygon, targetSR);
 
-                                foreach (var objectid in hits) {
-                                    using var cursor = featureClass.Search(new QueryFilter {
-                                        WhereClause = $"OBJECTID = {objectid}",
-                                    }, false);
+                            using var insert = featureClass.CreateInsertCursor();
 
-                                    cursor.MoveNext();
+                            foreach (var objectid in hits) {
+                                using var cursor = featureClass.Search(new QueryFilter {
+                                    WhereClause = $"OBJECTID = {objectid}",
+                                }, false);
 
-                                    if (objectid == 2160) return;
+                                cursor.MoveNext();
 
-                                    var feature = (Feature)cursor.Current;
-                                    var shape = (Polygon)feature.GetShape();
+                                if (objectid == 2160) return;
 
-                                    if (GeometryEngine.Instance.Within(shape, queryPolygonProjected)) {
-                                        deleted = [.. deleted, objectid];
-                                    }
-                                    else if (GeometryEngine.Instance.Intersects(queryPolygonProjected, shape)) {
-                                        deleted = [.. deleted, objectid];
-                                        var difference = GeometryEngine.Instance.Difference(shape, queryPolygonProjected);
+                                var feature = (Feature)cursor.Current;
+                                var shape = (Polygon)feature.GetShape();
 
-                                        if (difference is Polygon polygon) {
-                                            if (polygon.IsEmpty) continue;
+                                if (GeometryEngine.Instance.Within(shape, queryPolygonProjected)) {
+                                    deleted = [.. deleted, objectid];
+                                }
+                                else if (GeometryEngine.Instance.Intersects(queryPolygonProjected, shape)) {
+                                    deleted = [.. deleted, objectid];
+                                    var difference = GeometryEngine.Instance.Difference(shape, queryPolygonProjected);
 
-                                            if (polygon.ExteriorRingCount == 0) {
-                                                System.Diagnostics.Debugger.Break();
-                                            }
-                                            else if (polygon.ExteriorRingCount > 1) {
-                                                Polygon[] polygons = [];
-                                                ReadOnlySegmentCollection[] segments = [polygon.Parts[0]];
-                                                for (int i = 1; i < polygon.PartCount; i++) {
-                                                    var p = PolygonBuilderEx.CreatePolygon(polygon.Parts[i]);
-                                                    if (p.Area < 0)
-                                                        segments = [.. segments, polygon.Parts[i]];
-                                                    else {
-                                                        var _ = PolygonBuilderEx.CreatePolygon(segments);
-                                                        polygons = [.. polygons, _];
-                                                        segments = [polygon.Parts[i]];
-                                                    }
-                                                }
-                                                if (segments.Any()) {
+                                    if (difference is Polygon polygon) {
+                                        if (polygon.IsEmpty) continue;
+
+                                        if (polygon.ExteriorRingCount == 0) {
+                                            System.Diagnostics.Debugger.Break();
+                                        }
+                                        else if (polygon.ExteriorRingCount > 1) {
+                                            Polygon[] polygons = [];
+                                            ReadOnlySegmentCollection[] segments = [polygon.Parts[0]];
+                                            for (int i = 1; i < polygon.PartCount; i++) {
+                                                var p = PolygonBuilderEx.CreatePolygon(polygon.Parts[i]);
+                                                if (p.Area < 0)
+                                                    segments = [.. segments, polygon.Parts[i]];
+                                                else {
                                                     var _ = PolygonBuilderEx.CreatePolygon(segments);
                                                     polygons = [.. polygons, _];
+                                                    segments = [polygon.Parts[i]];
                                                 }
-
-                                                using var buffer = featureClass.CreateRowBuffer(feature);
-                                                for (int i = 0; i < polygons.Length; i++) {
-                                                    //buffer["shape"] = polygons[i];
-                                                    var p = GeometryEngine.Instance.SimplifyAsFeature(polygons[i]);
-                                                    Debug.Assert(p.IsKnownSimple);
-                                                    buffer["shape"] = polygons[i];
-                                                    var _ = insert.Insert(buffer);
-                                                    created = [.. created, _];
-
-                                                    if (!isValid()) {
-                                                        Console.WriteLine($"... caused by OID {objectid}=>{_}");
-                                                        return;
-                                                    }
-
-                                                    //if (objectid == 2160) {
-                                                    //    var json = p.ToJson();
-                                                    //    using (var spare = destination.OpenDataset<FeatureClass>("surface_spare")) {
-                                                    //        var b = spare.CreateRowBuffer();
-                                                    //        b["shape"] = p;
-                                                    //        spare.CreateRow(b);
-                                                    //    }
-                                                    //}
-                                                }
-                                                //if (objectid == 2160)
-                                                //    return;
                                             }
-                                            else {
-                                                if (polygon.ExteriorRingCount > 1) System.Diagnostics.Debugger.Break();
+                                            if (segments.Any()) {
+                                                var _ = PolygonBuilderEx.CreatePolygon(segments);
+                                                polygons = [.. polygons, _];
+                                            }
 
-                                                using var buffer = featureClass.CreateRowBuffer(feature);
-                                                //buffer["shape"] = polygon;
-                                                var p = GeometryEngine.Instance.SimplifyAsFeature(polygon);
+                                            using var buffer = featureClass.CreateRowBuffer(feature);
+                                            for (int i = 0; i < polygons.Length; i++) {
+                                                //buffer["shape"] = polygons[i];
+                                                var p = GeometryEngine.Instance.SimplifyAsFeature(polygons[i]);
                                                 Debug.Assert(p.IsKnownSimple);
-                                                buffer["shape"] = polygon;
+                                                buffer["shape"] = polygons[i];
                                                 var _ = insert.Insert(buffer);
                                                 created = [.. created, _];
-                                            }
-                                        }
-                                        else
-                                            System.Diagnostics.Debugger.Break();
-                                    }
 
-                                    try {
-                                        if (!isValid()) {
-                                            Console.WriteLine($"... caused by OID {objectid}");
-                                            return;
+                                                if (!isValid()) {
+                                                    Console.WriteLine($"... caused by OID {objectid}=>{_}");
+                                                    return;
+                                                }
+
+                                                //if (objectid == 2160) {
+                                                //    var json = p.ToJson();
+                                                //    using (var spare = destination.OpenDataset<FeatureClass>("surface_spare")) {
+                                                //        var b = spare.CreateRowBuffer();
+                                                //        b["shape"] = p;
+                                                //        spare.CreateRow(b);
+                                                //    }
+                                                //}
+                                            }
+                                            //if (objectid == 2160)
+                                            //    return;
+                                        }
+                                        else {
+                                            if (polygon.ExteriorRingCount > 1) System.Diagnostics.Debugger.Break();
+
+                                            using var buffer = featureClass.CreateRowBuffer(feature);
+                                            //buffer["shape"] = polygon;
+                                            var p = GeometryEngine.Instance.SimplifyAsFeature(polygon);
+                                            Debug.Assert(p.IsKnownSimple);
+                                            buffer["shape"] = polygon;
+                                            var _ = insert.Insert(buffer);
+                                            created = [.. created, _];
                                         }
                                     }
-                                    catch (System.Exception ex) {
-                                        Console.WriteLine($"Cautht exception: {ex}");
+                                    else
+                                        System.Diagnostics.Debugger.Break();
+                                }
+
+                                try {
+                                    if (!isValid()) {
                                         Console.WriteLine($"... caused by OID {objectid}");
                                         return;
                                     }
                                 }
-
-                                insert.Flush();
-
-                                featureClass.DeleteRows(new QueryFilter {
-                                    WhereClause = $"OBJECTID IN ({string.Join(',', deleted)})",
-                                });
-
-                                featureClass.DeleteRows(new SpatialQueryFilter {
-                                    FilterGeometry = queryPolygonProjected,
-                                    SpatialRelationship = SpatialRelationship.Contains
-                                });
-                            }
-                        }
-
-                        using (var spare = destination.OpenDataset<FeatureClass>("surface_spare")) {
-                            using var search = spare.Search(null, true);
-
-                            using (var featureClass = destination.OpenDataset<FeatureClass>("surface")) {
-                                using var insert = featureClass.CreateInsertCursor();
-
-                                var fields = search.GetFields().Where(e=>e.IsEditable).ToArray();
-
-                                while (search.MoveNext()) {
-                                    var current = (Feature)search.Current;
-
-                                    using var buffer = featureClass.CreateRowBuffer();
-                                    foreach (var f in fields)
-                                        buffer[f.Name] = current[f.Name];
-                                    buffer["shape"] = current.GetShape();
-                                    insert.Insert(buffer);
+                                catch (System.Exception ex) {
+                                    Console.WriteLine($"Cautht exception: {ex}");
+                                    Console.WriteLine($"... caused by OID {objectid}");
+                                    return;
                                 }
                             }
 
-                            spare.DeleteRows(new QueryFilter {
-                                WhereClause = "1 = 1",
+                            insert.Flush();
+
+                            featureClass.DeleteRows(new QueryFilter {
+                                WhereClause = $"OBJECTID IN ({string.Join(',', deleted)})",
+                            });
+
+                            featureClass.DeleteRows(new SpatialQueryFilter {
+                                FilterGeometry = queryPolygonProjected,
+                                SpatialRelationship = SpatialRelationship.Contains
                             });
                         }
 
