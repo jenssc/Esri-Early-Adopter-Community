@@ -1,6 +1,9 @@
 ﻿using ArcGIS.Core.Data;
 using ArcGIS.Core.Geometry;
 using ICSharpCode.SharpZipLib.Zip;
+using NetTopologySuite.Operation.Valid;
+using System.Diagnostics;
+using System.Security.Cryptography;
 using static System.Runtime.InteropServices.JavaScript.JSType;
 using IO = System.IO;
 
@@ -74,7 +77,7 @@ namespace NetTopologySuiteSample
 
             //  Create validation method used to check if all features has only one exterior ring
             var isValid = () => {
-                var success = true;
+                var success = true;                
                 using (var destination = createGeodatabaseInstance()) {
                     using (var surface = destination.OpenDataset<FeatureClass>("surface")) {
                         using (var cursor = surface.Search(null, true)) {
@@ -100,6 +103,23 @@ namespace NetTopologySuiteSample
                                 }
 
                                 var nettopology = shape.ToNetTopology();
+
+                                var validator = new IsValidOp(nettopology);
+                                // If TRUE (Default): The Figure-8 is considered VALID.
+                                // If FALSE: The Figure-8 is considered INVALID (Self-intersection).
+                                validator.SelfTouchingRingFormingHoleValid = false;
+
+                                if (!validator.IsValid) {
+                                    var result = validator.ValidationError;
+
+                                    var index = Array.IndexOf(nettopology.Coordinates, result.Coordinate);
+
+                                    Console.WriteLine($"--- OID::{objectid} invalid polygon ({result.ErrorType})!");
+                                    Console.WriteLine($"         {index} @{result.Coordinate}");
+                                    success = false;
+                                }
+                               
+
                                 var arcgisgeometry = nettopology.ToArcGIS();
 
                                 if (shape.IsEqual(arcgisgeometry)) {
@@ -143,110 +163,129 @@ namespace NetTopologySuiteSample
                 foreach (var queryPolygon in clipping) {
                     Console.WriteLine($"  Clipping #{++tripCounter}");
 
-                    var spatialFilter = new SpatialQueryFilter {
-                        FilterGeometry = queryPolygon,
-                        SpatialRelationship = SpatialRelationship.IndexIntersects
-                    };
+                    using (var featureClass = destination.OpenDataset<FeatureClass>("point")) {
+                        var targetSR = featureClass.GetDefinition().GetSpatialReference();
+                        var queryPolygonProjected = (Polygon)GeometryEngine.Instance.Project(queryPolygon, targetSR);
 
-                    long[] hits = [];
-                    using (var surface = destination.OpenDataset<FeatureClass>("surface")) {
-                        using (var cursor = surface.CreateUpdateCursor(spatialFilter, true)) {
-                            while (cursor.MoveNext()) {
-                                hits = [.. hits, cursor.Current.GetObjectID()];
-                            }
-                        }
+                        var spatialFilter = new SpatialQueryFilter {
+                            FilterGeometry = queryPolygonProjected,
+                            SpatialRelationship = SpatialRelationship.Contains
+                        };
+                        featureClass.DeleteRows(spatialFilter);
                     }
 
-                    var queryPolygonNetTopology = queryPolygon.ToNetTopology();
+                    using (var featureClass = destination.OpenDataset<FeatureClass>("pointset")) {
+                        var targetSR = featureClass.GetDefinition().GetSpatialReference();
+                        var queryPolygonProjected = (Polygon)GeometryEngine.Instance.Project(queryPolygon, targetSR);
 
-                    long[] deleted = [];
-                    long[] updated = [];
-                    using (var surface = destination.OpenDataset<FeatureClass>("surface")) {
-                        using var insert = surface.CreateInsertCursor();
+                        var spatialFilter = new SpatialQueryFilter {
+                            FilterGeometry = queryPolygonProjected,
+                            SpatialRelationship = SpatialRelationship.Contains
+                        };
+                        featureClass.DeleteRows(spatialFilter);
+                    }                    
 
-                        foreach (var objectid in hits) {
-                            using var cursor = surface.Search(new QueryFilter {
-                                WhereClause = $"OBJECTID = {objectid}",
-                            }, false);
+                    {   //  surface
+                        long[] hits = [];
+                        using (var featureClass = destination.OpenDataset<FeatureClass>("surface")) {
+                            var targetSR = featureClass.GetDefinition().GetSpatialReference();
+                            var queryPolygonProjected = (Polygon)GeometryEngine.Instance.Project(queryPolygon, targetSR);
 
-                            cursor.MoveNext();
+                            var spatialFilter = new SpatialQueryFilter {
+                                FilterGeometry = queryPolygonProjected,
+                                SpatialRelationship = SpatialRelationship.IndexIntersects
+                            };
 
-                            //if (objectid == 1084) System.Diagnostics.Debugger.Break();
-
-                            var feature = (Feature)cursor.Current;
-                            var shape = ((Polygon)feature.GetShape()).ToNetTopology();
-
-                            if (shape.Disjoint(queryPolygonNetTopology))
-                                continue;
-
-                            if (shape.Contains(queryPolygonNetTopology)) {
-                                Console.WriteLine($"\tdelete::{objectid}");
-                                deleted = [.. deleted, objectid];
-                                continue;
-                            }
-
-                            var difference = shape.Difference(queryPolygonNetTopology);
-
-                            if (difference is NetTopologySuite.Geometries.Polygon polygon) {
-                                if (polygon.IsEmpty) {
-                                    Console.WriteLine($"\tdelete::{objectid}");
-                                    deleted = [.. deleted, objectid];
-                                }
-                                else {
-                                    Console.WriteLine($"\tdelete::{objectid}");
-                                    deleted = [.. deleted, objectid];
-                                    using var buffer = surface.CreateRowBuffer(feature);
-                                    buffer["shape"] = polygon.ToArcGIS();
-                                    var uid = insert.Insert(buffer);
-                                    Console.WriteLine($"\tinsert::{uid}");
-                                    //using var _ = surface.CreateRow(buffer);
-                                    //feature.SetShape(polygon.ToArcGIS());
-                                    //feature.Store();
+                            using (var cursor = featureClass.CreateUpdateCursor(spatialFilter, true)) {
+                                while (cursor.MoveNext()) {
+                                    hits = [.. hits, cursor.Current.GetObjectID()];
                                 }
                             }
-                            else if (difference is NetTopologySuite.Geometries.MultiPolygon multiPolygon) {
-                                if (multiPolygon.Any(e => e.IsEmpty)) System.Diagnostics.Debugger.Break();
-
-                                deleted = [.. deleted, objectid];
-                                using var buffer = surface.CreateRowBuffer(feature);
-                                buffer["shape"] = ((NetTopologySuite.Geometries.Polygon)multiPolygon[0]).ToArcGIS();
-                                var uid = insert.Insert(buffer);
-                                Console.WriteLine($"\tinsert::{uid}");
-
-                                //feature.SetShape(((NetTopologySuite.Geometries.Polygon)multiPolygon[0]).ToArcGIS());
-                                //feature.Store();
-
-                                //using var buffer = surface.CreateRowBuffer(feature);
-                                //buffer["ps"] = feature["ps"];
-                                //buffer["code"] = feature["code"];
-                                //buffer["flatten"] = feature["flatten"];
-                                foreach (NetTopologySuite.Geometries.Polygon p in multiPolygon.Skip(1)) {
-                                    buffer["shape"] = p.ToArcGIS();
-                                    uid = insert.Insert(buffer);
-                                    Console.WriteLine($"\tinsert::{uid}");
-                                    //using var _ = surface.CreateRow(buffer);
-                                }
-                            }
-                            else {
-                                ;
-                            }
-
-                            if (!isValid()) return;
                         }
 
-                        insert.Flush();
-                    }
+                        var queryPolygonNetTopology = queryPolygon.ToNetTopology();
 
-                    if (deleted.Any()) {
-                        using (var surface = destination.OpenDataset<FeatureClass>("surface")) {
-                            surface.DeleteRows(new QueryFilter {
+                        long[] updated = [];
+                        long[] created = [];
+                        long[] deleted = [];
+
+                        using (var featureClass = destination.OpenDataset<FeatureClass>("surface")) {
+                            var targetSR = featureClass.GetDefinition().GetSpatialReference();
+                            var queryPolygonProjected = (Polygon)GeometryEngine.Instance.Project(queryPolygon, targetSR);
+
+                            using var insert = featureClass.CreateInsertCursor();
+
+                            foreach (var objectid in hits) {
+                                using var cursor = featureClass.Search(new QueryFilter {
+                                    WhereClause = $"OBJECTID = {objectid}",
+                                }, false);
+
+                                cursor.MoveNext();
+
+                                var feature = (Feature)cursor.Current;
+                                var shape = ((Polygon)feature.GetShape()).ToNetTopology();
+
+                                if (shape.Disjoint(queryPolygonNetTopology))
+                                    continue;
+
+                                if (queryPolygonNetTopology.Contains(shape)) {
+                                    deleted = [.. deleted, objectid];
+                                }                                
+                                else if (queryPolygonNetTopology.Intersects(shape)) {
+                                    deleted = [.. deleted, objectid];
+                                    var difference = shape.Difference(queryPolygonNetTopology);
+
+                                    if (difference is NetTopologySuite.Geometries.Polygon polygon) {
+                                        if (polygon.IsEmpty) continue;
+
+                                        using var buffer = featureClass.CreateRowBuffer(feature);
+                                        buffer["shape"] = polygon.ToArcGIS();
+                                        var _ = insert.Insert(buffer);
+                                        created = [.. created, _];
+                                    }
+                                    else if (difference is NetTopologySuite.Geometries.MultiPolygon multiPolygon) {
+                                        if (multiPolygon.Any(e => e.IsEmpty)) continue;
+
+                                        using var buffer = featureClass.CreateRowBuffer(feature);
+                                        foreach (NetTopologySuite.Geometries.Polygon p in multiPolygon) {
+                                            buffer["shape"] = p.ToArcGIS();
+                                            var _ = insert.Insert(buffer);
+                                            created = [.. created, _];
+                                        }
+                                    }
+                                    else
+                                        System.Diagnostics.Debugger.Break();
+                                }
+
+                                try {
+                                    if (!isValid()) {
+                                        Console.WriteLine($"... caused by OID {objectid}");
+                                        return;
+                                    }
+                                }
+                                catch (System.Exception ex) {
+                                    Console.WriteLine($"Cautht exception: {ex}");
+                                    Console.WriteLine($"... caused by OID {objectid}");
+                                    return;
+                                }
+                            }
+
+                            insert.Flush();
+
+                            featureClass.DeleteRows(new QueryFilter {
                                 WhereClause = $"OBJECTID IN ({string.Join(',', deleted)})",
                             });
-                        }
-                    }
 
-                    if (updated.Any())
-                        Console.WriteLine($"\tUpdated: OBJECTID IN ({string.Join(',', updated)})");
+                            featureClass.DeleteRows(new SpatialQueryFilter {
+                                FilterGeometry = queryPolygonProjected,
+                                SpatialRelationship = SpatialRelationship.Contains
+                            });
+                        }
+
+                        Console.WriteLine($"\tcreated: OBJECTID IN ({string.Join(',', created)})");
+                        Console.WriteLine($"\tdeleted: OBJECTID IN ({string.Join(',', deleted)})");
+
+                    }
 
                     if (!isValid()) {
                         Console.WriteLine("Houston, we have a problem!");
